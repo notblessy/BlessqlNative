@@ -12,7 +12,9 @@ struct ConnectionUpdateFormView: View {
     @Environment(\.dismiss) var dismiss
     
     let connection: Connection
-    let connectionStatus: String = ""
+    @State private var connectionStatus: String = ""
+    @State private var showAlert: Bool = false
+    @State private var alertMessage: String = ""
     
     @State private var name: String = ""
     @State private var host: String = ""
@@ -36,9 +38,24 @@ struct ConnectionUpdateFormView: View {
                     Text("Cancel")
                 })
                 
-                Button(action: /*@START_MENU_TOKEN@*/{}/*@END_MENU_TOKEN@*/, label: {
+                Button(action: {
+                    if let error = performTestConnection(host: host, database: database, user: user, password: password) {
+                        DispatchQueue.main.async {
+                            alertMessage = error
+                            showAlert = true
+                            connectionStatus = "error"
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            connectionStatus = "success"
+                        }
+                    }
+                }, label: {
                     Text("Test")
                 })
+                .alert(isPresented: $showAlert) {
+                    Alert(title: Text("Error"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+                }
                 
                 Button(action: {
                     connection.name = name

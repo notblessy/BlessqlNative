@@ -15,11 +15,11 @@ struct ConnectionFormView: View {
     @State private var showAlert: Bool = false
     @State private var alertMessage: String = ""
     
-    @State var name: String = "Bless"
-    @State var host: String = "localhost"
-    @State var user: String = "postgres"
-    @State var password: String = "password"
-    @State var database: String = "employer"
+    @State var name: String = ""
+    @State var host: String = ""
+    @State var user: String = ""
+    @State var password: String = ""
+    @State var database: String = ""
     
     var body: some View {
         VStack {

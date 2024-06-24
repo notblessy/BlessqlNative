@@ -10,13 +10,15 @@ import SwiftData
 
 struct ConnectionListView: View {
     @Environment(\.modelContext) private var context
-    @Query(sort: \Connection.createdAt) private var connections: [Connection]
     @State private var search: String = ""
     
     @State private var selection: String = ""
     
     @State var showSheet: Bool = false
     @State var showUpdateSheet: Bool = false
+    
+    
+    @Query(sort: \Connection.createdAt) private var connections: [Connection]
     
     var body: some View {
         HStack(alignment: .top) {
@@ -35,6 +37,11 @@ struct ConnectionListView: View {
                 ConnectionFormView()
                     .padding()
             })
+            .sheet(isPresented: $showUpdateSheet, content: {
+                let conn = connections.first(where: {$0.id.uuidString == selection})
+                ConnectionUpdateFormView(connection: conn!)
+                    .padding()
+            })
         }
         
         HStack {
@@ -44,21 +51,15 @@ struct ConnectionListView: View {
                         .tag(conn.id.uuidString)
                         .listRowSeparator(.hidden)
                         .contextMenu {
-                            Button("Edit", role: .destructive) {
-                                if let book = connections.first(where: {$0.id == conn.id}) {
-                                    context.delete(book)
-                                }
+                            Button("Edit") {
+                                showUpdateSheet.toggle()
                             }
                             Button("Delete", role: .destructive) {
-                                if let book = connections.first(where: {$0.id == conn.id}) {
-                                    context.delete(book)
+                                if let c = connections.first(where: {$0.id == conn.id}) {
+                                    context.delete(c)
                                 }
                             }
                         }
-                        .sheet(isPresented: $showUpdateSheet, content: {
-                            ConnectionUpdateFormView(connection: conn)
-                                .padding()
-                        })
                 }
             } else {
                 List(connections.filter({$0.name.contains(search)}), selection: $selection) { conn in
