@@ -28,7 +28,7 @@ struct ConnectionFormView: View {
             InputText(label: "Name", showLabel: true, borderStyle: connectionStatus, value: $name)
             InputText(label: "Host", showLabel: true, borderStyle: connectionStatus, value: $host)
             InputText(label: "User", showLabel: true, borderStyle: connectionStatus, value: $user)
-            InputText(label: "Password", showLabel: true, borderStyle: connectionStatus, value: $password)
+            SecureInput(label: "Password", showLabel: true, borderStyle: connectionStatus, value: $password)
             InputText(label: "Database", showLabel: true, borderStyle: connectionStatus, value: $database)
             HStack {
                 Button(action: {
