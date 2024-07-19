@@ -27,6 +27,7 @@
 		F9C9F2692C0E007F0033DF37 /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C9F2682C0E007F0033DF37 /* TaskListView.swift */; };
 		F9C9F26B2C0E056F0033DF37 /* TaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C9F26A2C0E056F0033DF37 /* TaskView.swift */; };
 		F9CDBED22C184972004FDAA4 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CDBED12C184972004FDAA4 /* Connection.swift */; };
+		F9D02FBD2C4A228800CEE7C4 /* Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D02FBC2C4A228800CEE7C4 /* Storage.swift */; };
 		F9D708A02C16FC35004CED03 /* ConnectionFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D7089F2C16FC35004CED03 /* ConnectionFormView.swift */; };
 		F9D708A22C16FE94004CED03 /* InputText.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D708A12C16FE94004CED03 /* InputText.swift */; };
 		F9DB9AFF2C12A86700B5BE56 /* ConnectionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9DB9AFE2C12A86700B5BE56 /* ConnectionListView.swift */; };
@@ -55,6 +56,7 @@
 		F9C9F2682C0E007F0033DF37 /* TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskListView.swift; sourceTree = "<group>"; };
 		F9C9F26A2C0E056F0033DF37 /* TaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskView.swift; sourceTree = "<group>"; };
 		F9CDBED12C184972004FDAA4 /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
+		F9D02FBC2C4A228800CEE7C4 /* Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage.swift; sourceTree = "<group>"; };
 		F9D7089F2C16FC35004CED03 /* ConnectionFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionFormView.swift; sourceTree = "<group>"; };
 		F9D708A12C16FE94004CED03 /* InputText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputText.swift; sourceTree = "<group>"; };
 		F9DB9AFE2C12A86700B5BE56 /* ConnectionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionListView.swift; sourceTree = "<group>"; };
@@ -129,6 +131,7 @@
 				F91AE71B2C0B8CD50045D6F5 /* TaskSection.swift */,
 				F9DB9B002C12AE8D00B5BE56 /* ConnectionStruct.swift */,
 				F9CDBED12C184972004FDAA4 /* Connection.swift */,
+				F9D02FBC2C4A228800CEE7C4 /* Storage.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -229,6 +232,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F910165A2C1B3D280065AD1B /* ConnectionUpdateFormView.swift in Sources */,
+				F9D02FBD2C4A228800CEE7C4 /* Storage.swift in Sources */,
 				F9C9F26B2C0E056F0033DF37 /* TaskView.swift in Sources */,
 				F9CDBED22C184972004FDAA4 /* Connection.swift in Sources */,
 				F9030C422C12D422006588BB /* Searchable.swift in Sources */,

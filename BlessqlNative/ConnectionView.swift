@@ -21,7 +21,7 @@ struct ConnectionView: View {
                 ConnectionListView()
             }
             .padding(.all, 10)
-            .frame(width: 400, height: 400)
+            .frame(minWidth: 400, minHeight: 400)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.white)
         }

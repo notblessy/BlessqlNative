@@ -8,6 +8,28 @@
 import Foundation
 import PostgresClientKit
 
+enum DatabaseConnectionError: Error {
+    case connectionFailed(Error)
+}
+
+func connectPostgres(host: String, database: String, user: String, password: String) -> PostgresClientKit.Connection? {
+    do {
+        var configuration = PostgresClientKit.ConnectionConfiguration()
+        configuration.host = host
+        configuration.database = database
+        configuration.user = user
+        configuration.credential = .md5Password(password: password)
+        configuration.ssl = false
+        
+        let connection = try PostgresClientKit.Connection(configuration: configuration)
+        
+        return connection
+    } catch {
+        print("Error connecting to the database: \(error)")
+        return nil
+    }
+}
+
 func performTestConnection(host: String, database: String, user: String, password: String) -> String? {
     do {
         var configuration = PostgresClientKit.ConnectionConfiguration()

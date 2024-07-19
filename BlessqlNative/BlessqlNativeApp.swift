@@ -10,8 +10,10 @@ import SwiftData
 
 @main
 struct BlessqlNativeApp: App {
+    @Environment(\.openWindow) private var openWindow
+    
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "connection") {
             ConnectionView()
                 .padding(.top, -55)
         }
@@ -31,6 +33,14 @@ struct BlessqlNativeApp: App {
                 }
                 .keyboardShortcut(KeyEquivalent("a"), modifiers: .command)
             }
+        }
+
+        
+        WindowGroup(id: "dashboard") {
+            ContentView()
+                .onDisappear(perform: {
+                    openWindow(id: "connection")
+                })
         }
     }
 }
