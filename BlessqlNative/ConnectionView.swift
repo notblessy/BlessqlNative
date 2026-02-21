@@ -1,30 +1,28 @@
-//
-//  ConnectionView.swift
-//  BlessqlNative
-//
-//  Created by Frederich Blessy on 06/06/24.
-//
-
 import SwiftUI
 
 struct ConnectionView: View {
     var body: some View {
-        HSplitView {
-            HSplitView {
-                LogoView()
+        VStack(spacing: 0) {
+            // Header branding
+            HStack {
+                Image(systemName: "cylinder.split.1x2")
+                    .font(.system(size: 20))
+                    .foregroundColor(.blessqlPrimary)
+                Text("Blessql")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
             }
-            .background(Color.blessqlWhite)
-            .frame(width: 250)
-            
-            // Right side view
-            VStack(alignment: .leading) {
-                ConnectionListView()
-            }
-            .padding(.all, 10)
-            .frame(minWidth: 400, minHeight: 400)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(nsColor: .windowBackgroundColor))
+
+            Divider()
+
+            // Connection list
+            ConnectionListView()
         }
+        .frame(minWidth: 600, minHeight: 400)
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 }
 

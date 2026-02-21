@@ -1,72 +1,89 @@
-//
-//  ConnectionFormView.swift
-//  BlessqlNative
-//
-//  Created by Frederich Blessy on 10/06/24.
-//
-
 import SwiftUI
 
 struct ConnectionFormView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) var dismiss
-    
+
     @State private var connectionStatus: String = ""
+    @State private var isTesting: Bool = false
     @State private var showAlert: Bool = false
     @State private var alertMessage: String = ""
-    
+
     @State var name: String = ""
     @State var host: String = ""
+    @State var port: String = ""
     @State var user: String = ""
     @State var password: String = ""
     @State var database: String = ""
-    
+    @State var useSSL: Bool = true
+
+    private var portValue: Int { Int(port) ?? 5432 }
+
     var body: some View {
-        VStack {
+        VStack(spacing: 8) {
             Text("Add Connection")
-                .padding(.bottom, 10)
+                .font(.headline)
+                .padding(.bottom, 4)
+
             InputText(label: "Name", showLabel: true, borderStyle: connectionStatus, value: $name)
-            InputText(label: "Host", showLabel: true, borderStyle: connectionStatus, value: $host)
+
+            HStack(spacing: 8) {
+                InputText(label: "Host", showLabel: true, borderStyle: connectionStatus, value: $host)
+                InputText(label: "Port", placeholder: "5432", showLabel: false, borderStyle: connectionStatus, value: $port)
+                    .frame(width: 64)
+            }
+
             InputText(label: "User", showLabel: true, borderStyle: connectionStatus, value: $user)
             SecureInput(label: "Password", showLabel: true, borderStyle: connectionStatus, value: $password)
             InputText(label: "Database", showLabel: true, borderStyle: connectionStatus, value: $database)
+
             HStack {
-                Button(action: {
-                    dismiss()
-                }, label: {
-                    Text("Cancel")
-                })
-                
-                Button(action: {
-                    if let error = performTestConnection(host: host, database: database, user: user, password: password) {
-                        DispatchQueue.main.async {
+                Text("SSL")
+                    .frame(width: 70, alignment: .leading)
+                Toggle("", isOn: $useSSL)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                Spacer()
+            }
+
+            HStack {
+                Button("Cancel") { dismiss() }
+
+                Spacer()
+
+                Button("Test") {
+                    isTesting = true
+                    performTestConnection(host: host, port: portValue, database: database, user: user, password: password, useSSL: useSSL) { error in
+                        isTesting = false
+                        if let error {
                             alertMessage = error
                             showAlert = true
                             connectionStatus = "error"
-                        }
-                    } else {
-                        DispatchQueue.main.async {
+                        } else {
                             connectionStatus = "success"
                         }
                     }
-                }, label: {
-                    Text("Test")
-                })
+                }
+                .disabled(isTesting)
                 .alert(isPresented: $showAlert) {
                     Alert(title: Text("Error"), message: Text(alertMessage), dismissButton: .default(Text("OK")))
                 }
-                
-                Button(action: {
-                    let conn = Connection(name: name, host: host, username: user, password: password, database: database, createdAt: Date())
+
+                if isTesting {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Button("Save") {
+                    let conn = Connection(name: name, host: host, port: portValue, username: user, password: password, database: database, useSSL: useSSL, createdAt: Date())
                     context.insert(conn)
                     dismiss()
-                }, label: {
-                    Text("Save")
-                })
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .padding(.top, 10)
+            .padding(.top, 8)
         }
-        .frame(width: 250)
+        .frame(width: 320)
     }
 }
 

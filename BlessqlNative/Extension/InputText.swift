@@ -1,29 +1,27 @@
-//
-//  InputText.swift
-//  BlessqlNative
-//
-//  Created by Frederich Blessy on 10/06/24.
-//
-
 import SwiftUI
 
 struct InputText: View {
     var label: String
+    var placeholder: String?
     var showLabel: Bool
     var borderStyle: String
-    
+
     @Binding var value: String
-    
+
+    private var prompt: String {
+        placeholder ?? label
+    }
+
     var body: some View {
         HStack {
             if showLabel {
                 Text(label)
                     .frame(width: 70, alignment: .leading)
             }
-            
+
             switch borderStyle {
             case "success":
-                TextField(label, text: $value)
+                TextField(prompt, text: $value)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 3)
@@ -34,7 +32,7 @@ struct InputText: View {
                     .accentColor(Color.blessqlSuccess)
                     .textFieldStyle(.roundedBorder)
             case "error":
-                TextField(label, text: $value)
+                TextField(prompt, text: $value)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 3)
@@ -45,11 +43,9 @@ struct InputText: View {
                     .accentColor(Color.blessqlError)
                     .textFieldStyle(.roundedBorder)
             default:
-                TextField(label, text: $value)
+                TextField(prompt, text: $value)
                     .textFieldStyle(.roundedBorder)
             }
-            
-            
         }
     }
 }
