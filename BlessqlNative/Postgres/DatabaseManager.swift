@@ -8,6 +8,7 @@ final class DatabaseManager: ObservableObject {
     @Published var isConnected = false
     @Published var isConnecting = false
     @Published var isLoading = false
+    @Published var isDisconnected = false
     @Published var error: String?
     @Published var connectionName = ""
     @Published var connectionURL = ""
@@ -43,6 +44,20 @@ final class DatabaseManager: ObservableObject {
     private var connection: PostgresClientKit.Connection?  // only touched on dbQueue
     private var connectAttemptID: UUID?  // tracks current attempt so stale ones are discarded
 
+    // Metadata caches (keyed by "schema.table")
+    private var columnMetadataCache: [String: [FieldSchema]] = [:]
+    private var rowCountCache: [String: Int] = [:]
+    private var structureCache: [String: [ColumnDefinition]] = [:]
+
+    // Stored connection params for reconnect
+    private var lastConnectParams: (host: String, port: Int, database: String, user: String, password: String, name: String, useSSL: Bool)?
+    private let queryTimeoutSeconds: Double = 15
+
+    // Timeout tracking IDs — prevents stale timeouts from firing
+    private var currentLoadID: UUID?
+    private var currentStructureLoadID: UUID?
+    private var currentQueryID: UUID?
+
     deinit {
         let conn = connection
         dbQueue.async { conn?.close() }
@@ -60,13 +75,15 @@ final class DatabaseManager: ObservableObject {
         connectionName = name
         connectionURL = "\(user)@\(host):\(port)/\(database)"
 
+        isDisconnected = false
+        lastConnectParams = (host, port, database, user, password, name, useSSL)
         let h = host, pt = port, d = database, u = user, p = password, ssl = useSSL
 
-        // Timeout — fires on main after 10s
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+        // Timeout — fires on main after 15s
+        DispatchQueue.main.asyncAfter(deadline: .now() + queryTimeoutSeconds) { [weak self] in
             guard let self, self.connectAttemptID == attemptID, self.isConnecting else { return }
             self.isConnecting = false
-            self.error = "Connection timed out (10 s). Check host, port, and SSL settings."
+            self.isDisconnected = true
         }
 
         // Run on a disposable global thread (NOT the serial dbQueue)
@@ -114,9 +131,27 @@ final class DatabaseManager: ObservableObject {
                 DispatchQueue.main.async {
                     guard self.connectAttemptID == attemptID else { return }
                     self.isConnecting = false
-                    self.error = "Connection failed: \(error.localizedDescription)"
+                    self.isDisconnected = true
+                    self.error = error.localizedDescription
                 }
             }
+        }
+    }
+
+    func reconnect() {
+        guard let params = lastConnectParams else { return }
+        disconnect()
+        connect(host: params.host, port: params.port, database: params.database, user: params.user, password: params.password, name: params.name, useSSL: params.useSSL)
+    }
+
+    private func markDisconnected() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isConnected = false
+            self.isDisconnected = true
+            self.isLoading = false
+            self.isLoadingStructure = false
+            self.isExecutingQuery = false
         }
     }
 
@@ -127,8 +162,8 @@ final class DatabaseManager: ObservableObject {
         selectedTable = table
         sortColumn = nil
         sortDirection = .ascending
+        structureData = []
         loadPage(0)
-        fetchTableStructure(schema: schema, table: table)
     }
 
     func loadPage(_ page: Int) {
@@ -140,15 +175,34 @@ final class DatabaseManager: ObservableObject {
 
         isLoading = true
 
+        let loadID = UUID()
+        currentLoadID = loadID
+        print("[DB] loadPage(\(page)) start — \(schema).\(table) id=\(loadID.uuidString.prefix(8))")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + queryTimeoutSeconds) { [weak self] in
+            guard let self, self.currentLoadID == loadID, self.isLoading else { return }
+            print("[DB] loadPage TIMEOUT after \(self.queryTimeoutSeconds)s — id=\(loadID.uuidString.prefix(8))")
+            self.markDisconnected()
+        }
+
         dbQueue.async { [weak self] in
             guard let self, let conn = self.connection else {
+                print("[DB] loadPage — no connection")
                 DispatchQueue.main.async { self?.isLoading = false }
                 return
             }
 
+            let start = CFAbsoluteTimeGetCurrent()
             let data = self.fetchPaginatedData(conn, schema: schema, table: table, page: page, pageSize: 200, sortColumn: sort, sortDirection: dir)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            print("[DB] loadPage(\(page)) fetched in \(String(format: "%.2f", elapsed))s — \(data.rows.count) rows, \(data.headers.count) cols")
 
             DispatchQueue.main.async {
+                guard self.currentLoadID == loadID else {
+                    print("[DB] loadPage — stale result discarded id=\(loadID.uuidString.prefix(8))")
+                    return
+                }
+                guard !self.isDisconnected else { return }
                 self.tableData = data
                 self.isLoading = false
             }
@@ -171,6 +225,11 @@ final class DatabaseManager: ObservableObject {
     }
 
     func refresh() {
+        let key = "\(selectedSchema).\(selectedTable)"
+        columnMetadataCache.removeValue(forKey: key)
+        rowCountCache.removeValue(forKey: key)
+        structureCache.removeValue(forKey: key)
+        structureData = []
         loadPage(tableData.currentPage)
     }
 
@@ -181,6 +240,9 @@ final class DatabaseManager: ObservableObject {
         structureData = []
         sortColumn = nil
         sortDirection = .ascending
+        columnMetadataCache.removeAll()
+        rowCountCache.removeAll()
+        structureCache.removeAll()
 
         dbQueue.async { [weak self] in
             guard let self, let conn = self.connection else { return }
@@ -207,6 +269,7 @@ final class DatabaseManager: ObservableObject {
         }
         isConnected = false
         isConnecting = false
+        isDisconnected = false
         schemas = []
         tableData = TableRow()
         selectedSchema = ""
@@ -220,6 +283,9 @@ final class DatabaseManager: ObservableObject {
         queryHistory = []
         sortColumn = nil
         sortDirection = .ascending
+        columnMetadataCache.removeAll()
+        rowCountCache.removeAll()
+        structureCache.removeAll()
     }
 
     // MARK: - Connection helper
@@ -234,9 +300,15 @@ final class DatabaseManager: ObservableObject {
         config.user = user
         config.socketTimeout = 10
 
-        // Build list of (ssl, credential) combos to try
-        let credentials: [Credential] = [.scramSHA256(password: password), .md5Password(password: password)]
-        let sslModes: [Bool] = ssl ? [true, false] : [false]
+        // Credential priority: SCRAM-SHA-256 (modern) → MD5 (legacy) → cleartext (old servers)
+        let credentials: [Credential] = [
+            .scramSHA256(password: password),
+            .md5Password(password: password),
+            .cleartextPassword(password: password)
+        ]
+
+        // SSL modes: prefer user preference, fallback to opposite
+        let sslModes: [Bool] = ssl ? [true, false] : [false, true]
 
         var lastError: Error?
 
@@ -261,7 +333,26 @@ final class DatabaseManager: ObservableObject {
             }
         }
 
-        throw lastError ?? PostgresError.connectionClosed
+        // Provide a user-friendly error message
+        let errorDesc: String
+        if let lastError {
+            let msg = lastError.localizedDescription
+            if msg.contains("-9968") || msg.contains("SSL") {
+                errorDesc = "SSL handshake failed. Try toggling the SSL option."
+            } else if msg.contains("SCRAM") || msg.contains("credential") || msg.contains("authentication") {
+                errorDesc = "Authentication failed. Check your username and password."
+            } else if msg.contains("timeout") || msg.contains("timed out") {
+                errorDesc = "Connection timed out. Check that the host and port are reachable."
+            } else if msg.contains("refused") {
+                errorDesc = "Connection refused. Is the database server running on \(host):\(port)?"
+            } else {
+                errorDesc = msg
+            }
+        } else {
+            errorDesc = "Unable to connect to the database."
+        }
+
+        throw NSError(domain: "BlessQL", code: -1, userInfo: [NSLocalizedDescriptionKey: errorDesc])
     }
 
     // MARK: - Sync helpers (run on dbQueue)
@@ -340,33 +431,35 @@ final class DatabaseManager: ObservableObject {
         }
     }
 
-    private func fetchPaginatedData(_ conn: PostgresClientKit.Connection, schema: String, table: String, page: Int, pageSize: Int, sortColumn: String? = nil, sortDirection: SortDirection = .ascending) -> TableRow {
-        let offset = page * pageSize
+    private func estimateRowCount(_ conn: PostgresClientKit.Connection, schema: String, table: String) -> Int {
+        let query = "SELECT reltuples::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = $1 AND n.nspname = $2;"
+        do {
+            let stmt = try conn.prepareStatement(text: query)
+            defer { stmt.close() }
+            let cursor = try stmt.execute(parameterValues: [table, schema])
+            for row in cursor {
+                return max(0, try row.get().columns[0].int())
+            }
+        } catch {
+            print("[DB] estimateRowCount error: \(error)")
+        }
+        return 0
+    }
 
-        var orderClause = ""
-        if let sortCol = sortColumn {
-            orderClause = " ORDER BY \"\(sortCol)\" \(sortDirection.rawValue)"
+    private func fetchColumnMetadata(_ conn: PostgresClientKit.Connection, schema: String, table: String) -> [FieldSchema] {
+        let key = "\(schema).\(table)"
+        if let cached = columnMetadataCache[key] {
+            return cached
         }
 
-        let countQuery   = "SELECT COUNT(*) FROM \"\(schema)\".\"\(table)\";"
-        let columnsQuery = "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position;"
-        let dataQuery    = "SELECT * FROM \"\(schema)\".\"\(table)\"\(orderClause) LIMIT \(pageSize) OFFSET \(offset);"
-
+        let query = "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position;"
         do {
-            let countStmt = try conn.prepareStatement(text: countQuery)
-            defer { countStmt.close() }
-            let countCursor = try countStmt.execute()
-            var totalCount = 0
-            for row in countCursor {
-                totalCount = try row.get().columns[0].int()
-            }
-
-            let colStmt = try conn.prepareStatement(text: columnsQuery)
-            defer { colStmt.close() }
-            let colCursor = try colStmt.execute(parameterValues: [schema, table])
+            let stmt = try conn.prepareStatement(text: query)
+            defer { stmt.close() }
+            let cursor = try stmt.execute(parameterValues: [schema, table])
 
             var fieldMap: [FieldSchema] = []
-            for (index, row) in colCursor.enumerated() {
+            for (index, row) in cursor.enumerated() {
                 let cols = try row.get().columns
                 fieldMap.append(FieldSchema(
                     fieldName: try cols[0].string(),
@@ -374,7 +467,41 @@ final class DatabaseManager: ObservableObject {
                     fieldIndex: index
                 ))
             }
+            columnMetadataCache[key] = fieldMap
+            return fieldMap
+        } catch {
+            print("[DB] fetchColumnMetadata error: \(error)")
+            return []
+        }
+    }
 
+    private func fetchPaginatedData(_ conn: PostgresClientKit.Connection, schema: String, table: String, page: Int, pageSize: Int, sortColumn: String? = nil, sortDirection: SortDirection = .ascending) -> TableRow {
+        let offset = page * pageSize
+        let key = "\(schema).\(table)"
+
+        var orderClause = ""
+        if let sortCol = sortColumn {
+            orderClause = " ORDER BY \"\(sortCol)\" \(sortDirection.rawValue)"
+        }
+
+        do {
+            // Row count: use cache or estimate via pg_class (instant, no full scan)
+            let totalCount: Int
+            let isEstimate: Bool
+            if let cached = rowCountCache[key] {
+                totalCount = cached
+                isEstimate = true
+            } else {
+                totalCount = estimateRowCount(conn, schema: schema, table: table)
+                rowCountCache[key] = totalCount
+                isEstimate = true
+            }
+
+            // Column metadata: use cache or fetch once
+            let fieldMap = fetchColumnMetadata(conn, schema: schema, table: table)
+
+            // Data: always fetch (this is the actual page data)
+            let dataQuery = "SELECT * FROM \"\(schema)\".\"\(table)\"\(orderClause) LIMIT \(pageSize) OFFSET \(offset);"
             let dataStmt = try conn.prepareStatement(text: dataQuery)
             defer { dataStmt.close() }
             let dataCursor = try dataStmt.execute(retrieveColumnMetadata: true)
@@ -383,7 +510,8 @@ final class DatabaseManager: ObservableObject {
                 name: "\(schema).\(table)",
                 totalCount: totalCount,
                 currentPage: page,
-                pageSize: pageSize
+                pageSize: pageSize,
+                isEstimatedCount: isEstimate
             )
 
             var rowIndex = 0
@@ -410,6 +538,8 @@ final class DatabaseManager: ObservableObject {
 
             if let firstRow = result.rows.first {
                 result.headers = firstRow.fields.map(\.fieldName)
+            } else {
+                result.headers = fieldMap.map(\.fieldName)
             }
 
             return result
@@ -421,17 +551,45 @@ final class DatabaseManager: ObservableObject {
     // MARK: - Structure operations
 
     func fetchTableStructure(schema: String, table: String) {
+        let key = "\(schema).\(table)"
+
+        // Return cached structure if available
+        if let cached = structureCache[key] {
+            structureData = cached
+            return
+        }
+
         isLoadingStructure = true
+
+        let structID = UUID()
+        currentStructureLoadID = structID
+        print("[DB] fetchTableStructure start — \(key) id=\(structID.uuidString.prefix(8))")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + queryTimeoutSeconds) { [weak self] in
+            guard let self, self.currentStructureLoadID == structID, self.isLoadingStructure else { return }
+            print("[DB] fetchTableStructure TIMEOUT — id=\(structID.uuidString.prefix(8))")
+            self.markDisconnected()
+        }
 
         dbQueue.async { [weak self] in
             guard let self, let conn = self.connection else {
+                print("[DB] fetchTableStructure — no connection")
                 DispatchQueue.main.async { self?.isLoadingStructure = false }
                 return
             }
 
+            let start = CFAbsoluteTimeGetCurrent()
             let result = self.fetchStructureSync(conn, schema: schema, table: table)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            print("[DB] fetchTableStructure done in \(String(format: "%.2f", elapsed))s — \(result.count) columns")
 
             DispatchQueue.main.async {
+                guard self.currentStructureLoadID == structID else {
+                    print("[DB] fetchTableStructure — stale result discarded")
+                    return
+                }
+                guard !self.isDisconnected else { return }
+                self.structureCache[key] = result
                 self.structureData = result
                 self.isLoadingStructure = false
             }
@@ -523,8 +681,19 @@ final class DatabaseManager: ObservableObject {
 
         isExecutingQuery = true
 
+        let qID = UUID()
+        currentQueryID = qID
+        print("[DB] executeQuery start — id=\(qID.uuidString.prefix(8)) sql=\(String(trimmed.prefix(80)))")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + queryTimeoutSeconds) { [weak self] in
+            guard let self, self.currentQueryID == qID, self.isExecutingQuery else { return }
+            print("[DB] executeQuery TIMEOUT — id=\(qID.uuidString.prefix(8))")
+            self.markDisconnected()
+        }
+
         dbQueue.async { [weak self] in
             guard let self, let conn = self.connection else {
+                print("[DB] executeQuery — no connection")
                 DispatchQueue.main.async {
                     self?.isExecutingQuery = false
                     self?.queryResult = QueryResult(columns: [], rows: [], affectedRows: 0, executionTime: 0, error: "Not connected")
@@ -535,6 +704,7 @@ final class DatabaseManager: ObservableObject {
             let startTime = CFAbsoluteTimeGetCurrent()
             let result = self.executeQuerySync(conn, sql: trimmed)
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            print("[DB] executeQuery done in \(String(format: "%.2f", elapsed))s — error=\(result.error ?? "none")")
 
             var finalResult = result
             finalResult.executionTime = elapsed
@@ -542,6 +712,11 @@ final class DatabaseManager: ObservableObject {
             let historyItem = QueryHistoryItem(sql: trimmed, timestamp: Date(), success: result.error == nil)
 
             DispatchQueue.main.async {
+                guard self.currentQueryID == qID else {
+                    print("[DB] executeQuery — stale result discarded id=\(qID.uuidString.prefix(8))")
+                    return
+                }
+                guard !self.isDisconnected else { return }
                 self.queryResult = finalResult
                 self.isExecutingQuery = false
                 self.queryHistory.insert(historyItem, at: 0)

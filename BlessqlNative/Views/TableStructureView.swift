@@ -3,7 +3,7 @@ import SwiftUI
 struct TableStructureView: View {
     @ObservedObject var db: DatabaseManager
 
-    @State private var columnWidths: [String: CGFloat] = [:]
+    @Binding var columnWidths: [String: CGFloat]
 
     private let headers = ["Name", "Type", "Default", "Nullable", "Key", "Comment"]
     private let defaultWidths: [String: CGFloat] = [
@@ -14,23 +14,7 @@ struct TableStructureView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if db.isLoadingStructure {
-                Spacer()
-                ProgressView()
-                    .controlSize(.small)
-                Spacer()
-            } else if db.structureData.isEmpty {
-                Spacer()
-                Text("No columns found")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                Spacer()
-            } else {
-                structureGrid
-            }
-        }
-        .onChange(of: db.selectedTable) { _ in
-            columnWidths = [:]
+            structureGrid
         }
     }
 
@@ -39,6 +23,7 @@ struct TableStructureView: View {
     private var structureGrid: some View {
         GeometryReader { geo in
             let gridWidth = max(totalGridWidth(), geo.size.width)
+            let dataCount = db.structureData.count
             let availableHeight = geo.size.height - 28
             let visibleRowCount = max(Int(ceil(availableHeight / rowHeight)), 1)
 
@@ -60,10 +45,10 @@ struct TableStructureView: View {
                                     gridWidth: gridWidth
                                 )
                             }
-                            let emptyCount = max(visibleRowCount - db.structureData.count, 0)
+                            let emptyCount = max(visibleRowCount - dataCount, 0)
                             if emptyCount > 0 {
                                 ForEach(0..<emptyCount, id: \.self) { idx in
-                                    emptyRow(index: db.structureData.count + idx, gridWidth: gridWidth)
+                                    emptyRow(index: dataCount + idx, gridWidth: gridWidth)
                                         .id("empty-\(idx)")
                                 }
                             }
@@ -97,9 +82,9 @@ struct TableStructureView: View {
             }
         }
         .frame(minWidth: gridWidth, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color(hex: "FCFCFC"))
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+            Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.5)).frame(height: 1)
         }
     }
 
@@ -157,54 +142,45 @@ private struct StructureRowView: View, Equatable {
             && lhs.gridWidth == rhs.gridWidth
     }
 
+    private var values: [String: String] {
+        [
+            "Name": col.name,
+            "Type": col.displayType,
+            "Default": col.columnDefault ?? "",
+            "Nullable": col.isNullable ? "YES" : "NO",
+            "Key": col.keyDisplay,
+            "Comment": col.comment ?? ""
+        ]
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            // Name
-            cell(header: "Name") {
-                Text(col.name)
-                    .font(.system(size: 11, weight: col.isPrimaryKey ? .semibold : .regular))
-                    .foregroundColor(.primary)
-            }
+            ForEach(headers, id: \.self) { header in
+                let value = values[header] ?? ""
 
-            // Type
-            cell(header: "Type") {
-                Text(col.displayType)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.primary)
-            }
+                HStack(spacing: 0) {
+                    Group {
+                        if value.isEmpty {
+                            Text("NULL")
+                                .font(.system(size: 11, design: .monospaced))
+                                .italic()
+                                .foregroundColor(Color(nsColor: .placeholderTextColor))
+                        } else {
+                            Text(value)
+                                .font(.system(size: 11))
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 8)
+                    .frame(height: rowHeight)
 
-            // Default
-            cell(header: "Default") {
-                if let def = col.columnDefault {
-                    Text(def)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.primary)
-                } else {
-                    Text("--")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor).opacity(0.3))
+                        .frame(width: 1)
                 }
-            }
-
-            // Nullable
-            cell(header: "Nullable") {
-                Image(systemName: col.isNullable ? "checkmark" : "xmark")
-                    .font(.system(size: 10))
-                    .foregroundColor(col.isNullable ? .green : .red)
-            }
-
-            // Key
-            cell(header: "Key") {
-                Text(col.keyDisplay)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(col.isPrimaryKey ? .orange : .blue)
-            }
-
-            // Comment
-            cell(header: "Comment") {
-                Text(col.comment ?? "")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                .frame(width: colWidth(header))
             }
         }
         .frame(minWidth: gridWidth, alignment: .leading)
@@ -212,22 +188,6 @@ private struct StructureRowView: View, Equatable {
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.15)).frame(height: 1)
         }
-    }
-
-    @ViewBuilder
-    private func cell<Content: View>(header: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 0) {
-            content()
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 8)
-                .frame(height: rowHeight)
-
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.3))
-                .frame(width: 1)
-        }
-        .frame(width: colWidth(header))
     }
 
     private func colWidth(_ header: String) -> CGFloat {

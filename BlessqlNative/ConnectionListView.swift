@@ -8,6 +8,8 @@ struct ConnectionListView: View {
 
     @State private var search: String = ""
     @State private var selection: String = ""
+    @State private var lastClickedID: String = ""
+    @State private var lastClickTime: Date = .distantPast
     @State private var showSheet: Bool = false
     @State private var showUpdateSheet: Bool = false
     @State private var showDeleteAlert: Bool = false
@@ -57,28 +59,53 @@ struct ConnectionListView: View {
                 }
                 Spacer()
             } else {
-                List(filteredConnections, selection: $selection) { conn in
-                    ConnectionRowView(connection: conn)
-                        .tag(conn.id.uuidString)
-                        .onTapGesture(count: 2) {
-                            connectTo(conn)
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(filteredConnections) { conn in
+                            let isSelected = selection == conn.id.uuidString
+
+                            ConnectionRowView(
+                                connection: conn,
+                                isSelected: isSelected
+                            )
+                            .padding(.horizontal, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(isSelected ? Color.accentColor : Color.clear)
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                let id = conn.id.uuidString
+                                let now = Date()
+                                if lastClickedID == id && now.timeIntervalSince(lastClickTime) < 0.35 {
+                                    connectTo(conn)
+                                    lastClickedID = ""
+                                    lastClickTime = .distantPast
+                                } else {
+                                    selection = id
+                                    lastClickedID = id
+                                    lastClickTime = now
+                                }
+                            }
+                            .contextMenu {
+                                Button("Connect") {
+                                    connectTo(conn)
+                                }
+                                Button("Edit") {
+                                    selection = conn.id.uuidString
+                                    showUpdateSheet.toggle()
+                                }
+                                Divider()
+                                Button("Delete", role: .destructive) {
+                                    connectionToDelete = conn
+                                    showDeleteAlert = true
+                                }
+                            }
                         }
-                        .contextMenu {
-                            Button("Connect") {
-                                connectTo(conn)
-                            }
-                            Button("Edit") {
-                                selection = conn.id.uuidString
-                                showUpdateSheet.toggle()
-                            }
-                            Divider()
-                            Button("Delete", role: .destructive) {
-                                connectionToDelete = conn
-                                showDeleteAlert = true
-                            }
-                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
                 }
-                .listStyle(.inset)
             }
         }
         .sheet(isPresented: $showSheet) {
@@ -114,6 +141,7 @@ struct ConnectionListView: View {
 
 struct ConnectionRowView: View {
     let connection: Connection
+    var isSelected: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -125,19 +153,20 @@ struct ConnectionRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(connection.name)
                     .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(isSelected ? .white : .primary)
                 Text("\(connection.username)@\(connection.host):\(connection.port)/\(connection.database)")
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(isSelected ? .white.opacity(0.7) : .secondary)
             }
 
             Spacer()
 
             Text("PostgreSQL")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(isSelected ? .white : .secondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2)
-                .background(Color.blessqlSecondary)
+                .background(isSelected ? Color.white.opacity(0.2) : Color.blessqlSecondary)
                 .cornerRadius(4)
         }
         .padding(.vertical, 4)

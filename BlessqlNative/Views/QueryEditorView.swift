@@ -3,8 +3,8 @@ import SwiftUI
 struct QueryEditorView: View {
     @ObservedObject var db: DatabaseManager
 
-    @State private var sqlText: String = ""
-    @State private var resultColumnWidths: [String: CGFloat] = [:]
+    @Binding var sqlText: String
+    @Binding var columnWidths: [String: CGFloat]
 
     private let rowHeight: CGFloat = 28
     private let defaultColWidth: CGFloat = 150
@@ -165,9 +165,9 @@ struct QueryEditorView: View {
                     HStack(spacing: 0) {
                         Text("#")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.primary)
                             .frame(width: 44, height: headerHeight)
-                            .background(Color(nsColor: .controlBackgroundColor))
+                            .background(Color(hex: "FCFCFC"))
 
                         Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1)
 
@@ -175,6 +175,7 @@ struct QueryEditorView: View {
                             HStack(spacing: 0) {
                                 Text(col)
                                     .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.primary)
                                     .lineLimit(1)
                                     .frame(width: resColWidth(col) - 9, alignment: .leading)
                                     .padding(.leading, 8)
@@ -182,16 +183,16 @@ struct QueryEditorView: View {
 
                                 Resizer(columnHeight: headerHeight, columnWidth: Binding(
                                     get: { resColWidth(col) },
-                                    set: { resultColumnWidths[col] = max($0, 60) }
+                                    set: { columnWidths[col] = max($0, 60) }
                                 ))
                                 .frame(width: 1)
                                 .foregroundColor(Color(nsColor: .separatorColor))
                             }
                         }
                     }
-                    .background(Color(nsColor: .controlBackgroundColor))
+                    .background(Color(hex: "FCFCFC"))
                     .overlay(alignment: .bottom) {
-                        Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+                        Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.5)).frame(height: 1)
                     }
 
                     // Body
@@ -269,7 +270,7 @@ struct QueryEditorView: View {
     }
 
     private func resColWidth(_ col: String) -> CGFloat {
-        resultColumnWidths[col] ?? defaultColWidth
+        columnWidths[col] ?? defaultColWidth
     }
 
     private func zebraColor(_ index: Int) -> Color {

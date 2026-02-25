@@ -8,15 +8,15 @@ struct ContentView: View {
 
     @StateObject private var db = DatabaseManager()
 
-    @State private var selectedTab: DetailTab = .data
+    @StateObject private var tabManager = TabManager()
+
     @State private var sidebarFilter: String = ""
-    @State private var showQueryEditor = false
     @State private var functionsExpanded = false
     @State private var tablesExpanded = true
 
     var body: some View {
         VStack(spacing: 0) {
-            if db.isConnecting {
+            if db.isConnecting && !db.isDisconnected {
                 Spacer()
                 VStack(spacing: 12) {
                     ProgressView()
@@ -37,7 +37,10 @@ struct ContentView: View {
         }
         .frame(minWidth: 900, minHeight: 600)
         .navigationTitle(db.connectionName)
-        .onAppear(perform: connect)
+        .onAppear {
+            tabManager.attach(db: db)
+            connect()
+        }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button { } label: {
@@ -54,31 +57,60 @@ struct ContentView: View {
             }
 
             ToolbarItem(placement: .principal) {
-                Text(toolbarTitle)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .padding(.horizontal, 12)
+                if db.isDisconnected {
+                    Button {
+                        db.reconnect()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "bolt.trianglebadge.exclamationmark")
+                                .font(.system(size: 10))
+                            Text("Disconnected — tap to reconnect")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(Color.blessqlError.opacity(0.5))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text(toolbarTitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .padding(.horizontal, 12)
+                }
             }
 
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    showQueryEditor.toggle()
+                    tabManager.openQueryTab()
                 } label: {
                     Image(systemName: "terminal")
                         .font(.system(size: 12))
                 }
-                .help("SQL Query Editor")
+                .help("New SQL Query")
 
                 Button {
-                    db.refresh()
+                    if let activeTab = tabManager.activeTab {
+                        switch activeTab.kind {
+                        case .table:
+                            db.refresh()
+                        case .query:
+                            if !tabManager.sqlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                db.executeQuery(sql: tabManager.sqlText)
+                            }
+                        }
+                    }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 12))
                 }
                 .help("Refresh")
-                .disabled(!db.isConnected || db.selectedTable.isEmpty)
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .disabled(!db.isConnected || tabManager.activeTab == nil)
             }
         }
         .alert("Error", isPresented: .init(
@@ -190,12 +222,15 @@ struct ContentView: View {
 
                     if tablesExpanded {
                         ForEach(currentTables, id: \.self) { table in
-                            let isSelected = db.selectedTable == table
+                            let isSelected: Bool = {
+                                if case .table(_, let t) = tabManager.activeTab?.kind {
+                                    return t == table
+                                }
+                                return false
+                            }()
 
                             Button {
-                                selectedTab = .data
-                                showQueryEditor = false
-                                db.selectTable(schema: db.selectedSchema, table: table)
+                                tabManager.openTable(schema: db.selectedSchema, table: table)
                             } label: {
                                 HStack(spacing: 5) {
                                     Image(systemName: "tablecells")
@@ -267,18 +302,22 @@ struct ContentView: View {
             .buttonStyle(.borderless)
             .help("Add item")
 
-            Picker("", selection: Binding(
-                get: { db.selectedSchema },
-                set: { newSchema in
-                    db.switchSchema(newSchema)
+            if !db.schemas.isEmpty {
+                Picker("", selection: Binding(
+                    get: { db.selectedSchema },
+                    set: { newSchema in
+                        db.switchSchema(newSchema)
+                    }
+                )) {
+                    ForEach(db.schemas) { schema in
+                        Text(schema.name).tag(schema.name)
+                    }
                 }
-            )) {
-                ForEach(db.schemas) { schema in
-                    Text(schema.name).tag(schema.name)
-                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+            } else {
+                Spacer()
             }
-            .labelsHidden()
-            .frame(maxWidth: .infinity)
 
             Button {
                 if !db.selectedSchema.isEmpty {
@@ -302,30 +341,53 @@ struct ContentView: View {
 
     private var detailView: some View {
         VStack(spacing: 0) {
-            if showQueryEditor {
-                QueryEditorView(db: db)
-            } else if db.selectedTable.isEmpty {
+            if !tabManager.tabs.isEmpty {
+                TabBarView(tabManager: tabManager)
+            }
+
+            if db.isLoading || db.isLoadingStructure || db.isExecutingQuery {
+                GeometryReader { geo in
+                    let barWidth = geo.size.width * 0.3
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: barWidth, height: 2)
+                        .offset(x: 0)
+                        .modifier(IndeterminateProgressModifier(width: geo.size.width, barWidth: barWidth))
+                }
+                .frame(height: 2)
+                .clipped()
+            }
+
+            if let activeTab = tabManager.activeTab {
+                switch activeTab.kind {
+                case .table(let schema, let table):
+                    switch tabManager.selectedDetailTab {
+                    case .data:
+                        TableContentView(db: db, selectedTab: $tabManager.selectedDetailTab, columnWidths: $tabManager.tableColumnWidths)
+                    case .structure:
+                        TableStructureView(db: db, columnWidths: $tabManager.structureColumnWidths)
+                            .onAppear {
+                                if db.structureData.isEmpty {
+                                    db.fetchTableStructure(schema: schema, table: table)
+                                }
+                            }
+                    }
+                    detailBottomBar
+
+                case .query:
+                    QueryEditorView(db: db, sqlText: $tabManager.sqlText, columnWidths: $tabManager.queryColumnWidths)
+                }
+            } else {
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "tablecells")
                         .font(.system(size: 36))
                         .foregroundColor(Color(nsColor: .quaternaryLabelColor))
-                    Text("Select a table")
+                    Text("Select a table or open a query")
                         .font(.system(size: 13))
                         .foregroundColor(Color(nsColor: .tertiaryLabelColor))
                 }
                 Spacer()
-            } else {
-                // Content based on selected tab
-                switch selectedTab {
-                case .data:
-                    TableContentView(db: db, selectedTab: $selectedTab)
-                case .structure:
-                    TableStructureView(db: db)
-                }
-
-                // Bottom bar
-                detailBottomBar
             }
         }
     }
@@ -352,15 +414,15 @@ struct ContentView: View {
         HStack(spacing: 0) {
             ForEach(DetailTab.allCases) { tab in
                 Button {
-                    selectedTab = tab
+                    tabManager.selectedDetailTab = tab
                 } label: {
                     Text(tab.rawValue)
-                        .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .regular))
-                        .foregroundColor(selectedTab == tab ? .primary : .secondary)
+                        .font(.system(size: 11, weight: tabManager.selectedDetailTab == tab ? .semibold : .regular))
+                        .foregroundColor(tabManager.selectedDetailTab == tab ? .primary : .secondary)
                         .padding(.horizontal, 12)
                 }
                 .buttonStyle(.plain)
-                .background(selectedTab == tab ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                .background(tabManager.selectedDetailTab == tab ? Color(nsColor: .controlBackgroundColor) : Color.clear)
             }
 
             Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1, height: 16)
@@ -384,8 +446,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var bottomBarCenter: some View {
-        if db.tableData.totalCount > 0 && selectedTab == .data {
-            Text("\(db.tableData.rangeStart)-\(db.tableData.rangeEnd) of \(db.tableData.totalCount) rows")
+        if db.tableData.totalCount > 0 && tabManager.selectedDetailTab == .data {
+            let prefix = db.tableData.isEstimatedCount ? "~" : ""
+            Text("\(db.tableData.rangeStart)-\(db.tableData.rangeEnd) of \(prefix)\(db.tableData.totalCount) rows")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
@@ -409,7 +472,7 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .help("Columns (coming soon)")
 
-            if db.tableData.totalPages > 1 && selectedTab == .data {
+            if db.tableData.totalPages > 1 && tabManager.selectedDetailTab == .data {
                 Button {
                     db.loadPage(db.tableData.currentPage - 1)
                 } label: {
@@ -452,6 +515,25 @@ struct ContentView: View {
 extension Collection {
     subscript(safe index: Index) -> Element? {
         return indices.contains(index) ? self[index] : nil
+    }
+}
+
+// MARK: - Indeterminate Progress Bar
+
+private struct IndeterminateProgressModifier: ViewModifier, Animatable {
+    let width: CGFloat
+    let barWidth: CGFloat
+    @State private var offsetX: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: offsetX)
+            .onAppear {
+                offsetX = -barWidth
+                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                    offsetX = width
+                }
+            }
     }
 }
 

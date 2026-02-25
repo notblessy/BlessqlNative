@@ -4,24 +4,14 @@ struct TableContentView: View {
     @ObservedObject var db: DatabaseManager
     @Binding var selectedTab: DetailTab
 
-    @State private var columnWidths: [String: CGFloat] = [:]
+    @Binding var columnWidths: [String: CGFloat]
 
     private let rowHeight: CGFloat = 28
     private let defaultColWidth: CGFloat = 150
 
     var body: some View {
         VStack(spacing: 0) {
-            if db.isLoading {
-                Spacer()
-                ProgressView()
-                    .controlSize(.small)
-                Spacer()
-            } else {
-                spreadsheetGrid
-            }
-        }
-        .onChange(of: db.selectedTable) { _ in
-            columnWidths = [:]
+            spreadsheetGrid
         }
     }
 
@@ -33,7 +23,7 @@ struct TableContentView: View {
             let rows = db.tableData.rows
             let availableHeight = geo.size.height - 28
             let visibleRowCount = max(Int(ceil(availableHeight / rowHeight)), 1)
-            let gridWidth = max(totalGridWidth(headers: headers), geo.size.width)
+            let gridWidth = headers.isEmpty ? geo.size.width : max(totalGridWidth(headers: headers), geo.size.width)
 
             ScrollView(.horizontal, showsIndicators: true) {
                 VStack(spacing: 0) {
@@ -71,6 +61,9 @@ struct TableContentView: View {
 
     private func headerRow(headers: [String], gridWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
+            if headers.isEmpty {
+                Color.clear.frame(height: 28)
+            }
             ForEach(headers, id: \.self) { header in
                 HStack(spacing: 0) {
                     Button {
@@ -102,9 +95,9 @@ struct TableContentView: View {
             }
         }
         .frame(minWidth: gridWidth, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color(hex: "FCFCFC"))
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 1)
+            Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.5)).frame(height: 1)
         }
     }
 
@@ -112,14 +105,18 @@ struct TableContentView: View {
 
     private func emptyRow(index: Int, headers: [String], gridWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
-            ForEach(headers, id: \.self) { header in
-                HStack(spacing: 0) {
-                    Color.clear.frame(height: rowHeight)
-                    Rectangle()
-                        .fill(Color(nsColor: .separatorColor).opacity(0.3))
-                        .frame(width: 1)
+            if headers.isEmpty {
+                Color.clear.frame(height: rowHeight)
+            } else {
+                ForEach(headers, id: \.self) { header in
+                    HStack(spacing: 0) {
+                        Color.clear.frame(height: rowHeight)
+                        Rectangle()
+                            .fill(Color(nsColor: .separatorColor).opacity(0.3))
+                            .frame(width: 1)
+                    }
+                    .frame(width: colWidth(header))
                 }
-                .frame(width: colWidth(header))
             }
         }
         .frame(minWidth: gridWidth, alignment: .leading)

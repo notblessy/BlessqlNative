@@ -124,6 +124,7 @@ struct TableRow: Codable {
     var totalCount: Int
     var currentPage: Int
     var pageSize: Int
+    var isEstimatedCount: Bool
 
     init() {
         self.name = ""
@@ -132,15 +133,17 @@ struct TableRow: Codable {
         self.totalCount = 0
         self.currentPage = 0
         self.pageSize = 200
+        self.isEstimatedCount = false
     }
 
-    init(name: String, rows: [Row] = [], headers: [String] = [], totalCount: Int = 0, currentPage: Int = 0, pageSize: Int = 200) {
+    init(name: String, rows: [Row] = [], headers: [String] = [], totalCount: Int = 0, currentPage: Int = 0, pageSize: Int = 200, isEstimatedCount: Bool = false) {
         self.name = name
         self.rows = rows
         self.headers = headers
         self.totalCount = totalCount
         self.currentPage = currentPage
         self.pageSize = pageSize
+        self.isEstimatedCount = isEstimatedCount
     }
 
     var totalPages: Int {
